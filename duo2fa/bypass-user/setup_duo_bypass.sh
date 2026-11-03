@@ -80,11 +80,19 @@ mkdir -p /etc/duo
 TMP_CONFIG=$(mktemp /etc/duo/pam_duo.conf.XXXXXX)
 cat > "$TMP_CONFIG" <<EOF
 [duo]
+; Duo integration key
 ikey = $DUO_IKEY
+; Duo secret key
 skey = $DUO_SKEY
+; Duo API host
 host = $DUO_HOST
+; safe allows access when Duo cannot authenticate due to service or configuration errors.
+; secure denies access in those cases.
+; With safe, login can continue without Duo when Duo is unavailable.
+failmode = safe
+; Send command for Duo Push authentication
+;pushinfo = yes
 groups = *,!duo-bypass
-failmode = secure
 EOF
 chown root:root "$TMP_CONFIG"; chmod 600 "$TMP_CONFIG"; mv -f "$TMP_CONFIG" /etc/duo/pam_duo.conf
 unset DUO_SKEY

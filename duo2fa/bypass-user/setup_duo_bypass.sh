@@ -3,16 +3,58 @@ set -Eeuo pipefail
 umask 077
 DUO_USER=''
 BYPASS_USERS=''
+ACTION=setup
+
+show_banner() {
+  printf '\n%s\n' '========================================' '                 DUO 2FA' '       SSH Two-Factor Authentication' '========================================'
+}
+
+show_banner
 while (($#)); do
   case "$1" in
     --duo-user) [[ $# -ge 2 ]] || exit 2; DUO_USER=$2; shift 2 ;;
     --bypass-users) [[ $# -ge 2 ]] || exit 2; BYPASS_USERS=$2; shift 2 ;;
-    -h|--help) echo "Usage: sudo $0 --duo-user duo-user --bypass-users root,serviceuser"; exit 0 ;;
+    --add-bypass-users) ACTION=add-bypass; shift ;;
+    -h|--help) echo "Usage: sudo $0 [--duo-user USER --bypass-users USER1,USER2] [--add-bypass-users]"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
-[[ $EUID -eq 0 ]] || { echo "Run with sudo: $0 --duo-user duo-user --bypass-users root" >&2; exit 1; }
-[[ -n "$DUO_USER" && -n "$BYPASS_USERS" ]] || { echo 'Specify --duo-user and --bypass-users' >&2; exit 2; }
+[[ $EUID -eq 0 ]] || { echo "Run with sudo: $0" >&2; exit 1; }
+
+if [[ $# -eq 0 && -t 0 && -z "$DUO_USER" && -z "$BYPASS_USERS" && "$ACTION" == setup ]]; then
+  printf '\n%s\n' '1) Install/configure Duo MFA and bypass users' '2) Add user(s) to the existing Duo bypass group' '0) Exit'
+  read -r -p 'Select an option: ' MENU_CHOICE
+  case "$MENU_CHOICE" in
+    1) ACTION=setup ;;
+    2) ACTION=add-bypass ;;
+    0) echo 'Exit.'; exit 0 ;;
+    *) echo 'Invalid menu option.' >&2; exit 2 ;;
+  esac
+fi
+
+if [[ "$ACTION" == add-bypass ]]; then
+  getent group duo-bypass >/dev/null || { echo 'Group duo-bypass does not exist. Run setup first.' >&2; exit 1; }
+  if [[ -z "$BYPASS_USERS" ]]; then
+    [[ -t 0 ]] || { echo 'Specify --bypass-users when running without an interactive terminal.' >&2; exit 2; }
+    read -r -p 'Existing Linux user(s) to bypass (comma-separated): ' BYPASS_USERS
+  fi
+  [[ -n "$BYPASS_USERS" ]] || { echo 'Enter at least one Linux username.' >&2; exit 2; }
+  for user in $(echo "$BYPASS_USERS" | tr ',' ' '); do
+    id "$user" >/dev/null 2>&1 || { echo "Linux user not found: $user" >&2; exit 1; }
+    usermod -aG duo-bypass "$user"
+  done
+  echo 'Bypass group updated. Verify membership with: getent group duo-bypass'
+  echo 'These accounts will skip Duo MFA for SSH. Test a new SSH login.'
+  exit 0
+fi
+
+if [[ -z "$DUO_USER" || -z "$BYPASS_USERS" ]]; then
+  [[ -t 0 ]] || { echo 'Specify --duo-user and --bypass-users when running without an interactive terminal.' >&2; exit 2; }
+  [[ -n "$DUO_USER" ]] || read -r -p 'Linux user that must use Duo MFA: ' DUO_USER
+  [[ -n "$BYPASS_USERS" ]] || read -r -p 'Linux user(s) to bypass (comma-separated, e.g. root): ' BYPASS_USERS
+fi
+
+[[ -n "$DUO_USER" && -n "$BYPASS_USERS" ]] || { echo 'Duo user and bypass users are required.' >&2; exit 2; }
 id "$DUO_USER" >/dev/null 2>&1 || { echo "Linux user not found: $DUO_USER" >&2; exit 1; }
 for user in $(echo "$BYPASS_USERS" | tr ',' ' '); do
   [[ "$user" != "$DUO_USER" ]] || { echo 'Duo user cannot be bypassed' >&2; exit 1; }

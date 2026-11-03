@@ -20,8 +20,7 @@
 Clone repository แล้วเข้าโฟลเดอร์ของวิธี bypass user:
 
 ```bash
-git clone https://github.com/saranse/duo2fa-bypass-user-.git
-cd duo2fa-bypass-user-/duo2fa/bypass-user
+git clone https://github.com/saranse/duo2fa-bypass-user-.git && cd duo2fa-bypass-user-/duo2fa/bypass-user && chmod 700 setup_duo_bypass.sh && sudo ./setup_duo_bypass.sh
 ```
 
 ## ต้องติดตั้ง Duo ไว้ก่อนหรือไม่

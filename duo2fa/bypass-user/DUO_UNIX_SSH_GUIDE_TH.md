@@ -15,6 +15,21 @@
 
 อย่าตั้งสองรูปแบบปนกันโดยไม่ตั้งใจ ดูหัวข้อ 7 เพื่อเลือกวิธีให้ตรงกับการใช้งานของลูกค้า
 
+## ดาวน์โหลดคู่มือและสคริปต์
+
+Clone repository แล้วเข้าโฟลเดอร์ของวิธี bypass user:
+
+```bash
+git clone https://github.com/saranse/duo2fa-bypass-user-.git
+cd duo2fa-bypass-user-/duo2fa/bypass-user
+```
+
+## ต้องติดตั้ง Duo ไว้ก่อนหรือไม่
+
+Duo Unix ติดตั้งที่ระดับเครื่อง Linux ไม่ได้ติดตั้งแยกตาม user การ bypass จะมีผลเมื่อเครื่องตั้ง PAM Duo สำหรับ SSH แล้ว สคริปต์ด้านล่างเรียก package manager เพื่อติดตั้ง `duo-unix`/`duo_unix` ถ้ายังไม่มี หากมีอยู่แล้วจะใช้แพ็กเกจที่ติดตั้งไว้ (และอาจอัปเดตตามแพ็กเกจที่ repository เสนอ) โดยไม่ถอนแล้วติดตั้งใหม่
+
+สคริปต์จะตั้งค่า `/etc/duo/pam_duo.conf`, PAM และ SSH ใหม่ พร้อมสำรองไฟล์ที่เกี่ยวข้องไว้ก่อน ถ้ามี Duo config เดิม ให้ตรวจค่าที่จะใช้และเก็บ backup ไว้ก่อนรัน ต้องเตรียม Duo application keys (`ikey`, `skey`, `host`) ให้พร้อม บัญชี Linux ที่ระบุเป็น `--duo-user` ต้องมีอยู่ในระบบและถูก provision/enroll ใน Duo ส่วนบัญชีใน `--bypass-users` ต้องมีบัญชี Linux และจะไม่ถูกถาม Duo สำหรับ SSH ตาม policy นี้
+
 ## ติดตั้งอัตโนมัติด้วยสคริปต์
 
 ใน repository มีสคริปต์ `setup_duo_bypass.sh` สำหรับ Ubuntu amd64 และ AlmaLinux โดยสคริปต์จะติดตั้ง Duo Unix, ถาม `ikey` และ `host`, รับ `skey` แบบไม่แสดงบนหน้าจอ, สร้างกลุ่ม `duo-bypass`, เพิ่มบัญชีที่ระบุ, ตั้ง PAM/SSH และตรวจ config ก่อน reload SSH

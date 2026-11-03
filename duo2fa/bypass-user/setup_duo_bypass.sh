@@ -4,6 +4,7 @@ umask 077
 DUO_USER=''
 BYPASS_USERS=''
 ACTION=setup
+BACKUP_DIR=''
 
 show_banner() {
   printf '\n%s\n' '========================================' '                 DUO 2FA' '       SSH Two-Factor Authentication' '========================================'
@@ -15,25 +16,74 @@ while (($#)); do
     --duo-user) [[ $# -ge 2 ]] || exit 2; DUO_USER=$2; shift 2 ;;
     --bypass-users) [[ $# -ge 2 ]] || exit 2; BYPASS_USERS=$2; shift 2 ;;
     --add-bypass-users) ACTION=add-bypass; shift ;;
-    -h|--help) echo "Usage: sudo $0 [--duo-user USER --bypass-users USER1,USER2] [--add-bypass-users]"; exit 0 ;;
+    --rollback) ACTION=rollback; shift ;;
+    -h|--help) echo "Usage: sudo $0 [--duo-user USER --bypass-users USER1,USER2] [--add-bypass-users|--rollback]"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 [[ $EUID -eq 0 ]] || { echo "Run with sudo: $0" >&2; exit 1; }
 
 if [[ $# -eq 0 && -t 0 && -z "$DUO_USER" && -z "$BYPASS_USERS" && "$ACTION" == setup ]]; then
-  printf '\n%s\n' '1) First-time setup / reconfigure Duo (updates Duo, PAM, and SSH config)' '2) Add bypass user(s) to existing setup (group change only)' '0) Exit'
+  printf '\n%s\n' '1) Apply Duo bypass policy using existing Duo installation/config (keeps existing keys)' '2) Add bypass user(s) to existing setup (group change only)' '3) Roll back a previous setup from backup' '0) Exit'
   read -r -p 'Select an option: ' MENU_CHOICE
   case "$MENU_CHOICE" in
     1)
       ACTION=setup
-      read -r -p 'This will write Duo config and update PAM/SSH settings. Continue? [y/N]: ' CONFIRM_SETUP
+      read -r -p 'This will use existing Duo keys and update group/PAM/SSH settings. Continue? [y/N]: ' CONFIRM_SETUP
       [[ "$CONFIRM_SETUP" =~ ^[Yy]$ ]] || { echo 'Setup cancelled.'; exit 0; }
       ;;
     2) ACTION=add-bypass ;;
+    3) ACTION=rollback ;;
     0) echo 'Exit.'; exit 0 ;;
     *) echo 'Invalid menu option.' >&2; exit 2 ;;
   esac
+fi
+
+restore_backup() {
+  local backup="$1" path name
+  [[ -d "$backup" && "$backup" == /root/duo-setup-backup-* ]] || { echo 'Invalid backup directory.' >&2; return 1; }
+  for path in /etc/pam.d/sshd /etc/duo/pam_duo.conf /etc/ssh/sshd_config /etc/ssh/sshd_config.d/00-duo-bypass.conf; do
+    name=$(basename "$path")
+    if [[ -e "$backup/$name" ]]; then mkdir -p "$(dirname "$path")"; cp -a "$backup/$name" "$path"
+    elif [[ -e "$backup/$name.absent" ]]; then rm -f "$path"; fi
+  done
+  if [[ -f "$backup/duo-bypass.members" ]] && getent group duo-bypass >/dev/null; then
+    local current user
+    current=$(getent group duo-bypass | awk -F: '{print $4}' | tr ',' ' ')
+    for user in $current; do
+      if ! grep -Fxq "$user" "$backup/duo-bypass.members"; then gpasswd -d "$user" duo-bypass >/dev/null || true; fi
+    done
+    while IFS= read -r user; do
+      [[ -n "$user" ]] && id "$user" >/dev/null 2>&1 && usermod -aG duo-bypass "$user"
+    done < "$backup/duo-bypass.members"
+  fi
+  if [[ -e "$backup/duo-bypass-group.absent" ]] && getent group duo-bypass >/dev/null; then
+    [[ -z "$(getent group duo-bypass | awk -F: '{print $4}')" ]] && groupdel duo-bypass || true
+  fi
+  if command -v sshd >/dev/null && sshd -t >/dev/null 2>&1; then
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  else
+    echo 'Restored files, but sshd config validation failed; inspect before reload.' >&2
+    return 1
+  fi
+  echo "Rollback complete from $backup"
+}
+
+if [[ "$ACTION" == rollback ]]; then
+  [[ -t 0 ]] || { echo 'Rollback menu requires an interactive terminal.' >&2; exit 2; }
+  mapfile -t BACKUPS < <(find /root -maxdepth 1 -type d -name 'duo-setup-backup-*' -printf '%f\n' | sort -r)
+  ((${#BACKUPS[@]})) || { echo 'No Duo setup backups found in /root.' >&2; exit 1; }
+  printf '\nAvailable backups:\n'
+  for i in "${!BACKUPS[@]}"; do printf '%d) /root/%s\n' "$((i+1))" "${BACKUPS[$i]}"; done
+  read -r -p 'Select backup number to restore (0 cancels): ' BACKUP_CHOICE
+  [[ "$BACKUP_CHOICE" =~ ^[0-9]+$ ]] || { echo 'Invalid selection.' >&2; exit 2; }
+  (( BACKUP_CHOICE == 0 )) && { echo 'Rollback cancelled.'; exit 0; }
+  (( BACKUP_CHOICE <= ${#BACKUPS[@]} )) || { echo 'Invalid selection.' >&2; exit 2; }
+  BACKUP_DIR="/root/${BACKUPS[$((BACKUP_CHOICE-1))]}"
+  read -r -p "Restore files and bypass group membership from $BACKUP_DIR? [y/N]: " CONFIRM_ROLLBACK
+  [[ "$CONFIRM_ROLLBACK" =~ ^[Yy]$ ]] || { echo 'Rollback cancelled.'; exit 0; }
+  restore_backup "$BACKUP_DIR"
+  exit $?
 fi
 
 if [[ "$ACTION" == add-bypass ]]; then
@@ -70,19 +120,26 @@ case "$ID" in
   almalinux) DISTRO=almalinux ;;
   *) echo "Unsupported distribution: $ID; use Ubuntu or AlmaLinux" >&2; exit 1 ;;
 esac
-read -r -p 'Duo Integration Key (ikey): ' DUO_IKEY
-read -r -s -p 'Duo Secret Key (skey): ' DUO_SKEY; printf '\n'
-read -r -p 'Duo API hostname: ' DUO_HOST
-[[ -n "$DUO_IKEY" && -n "$DUO_SKEY" && "$DUO_HOST" =~ ^[A-Za-z0-9.-]+\.duosecurity\.com$ ]] || { echo 'Invalid Duo credentials or API hostname' >&2; exit 1; }
+if [[ ! -f /etc/duo/pam_duo.conf ]] || ! grep -Eq '^[[:space:]]*ikey[[:space:]]*=[[:space:]]*[^[:space:]]+' /etc/duo/pam_duo.conf || ! grep -Eq '^[[:space:]]*skey[[:space:]]*=[[:space:]]*[^[:space:]]+' /etc/duo/pam_duo.conf || ! grep -Eq '^[[:space:]]*host[[:space:]]*=[[:space:]]*[A-Za-z0-9.-]+\.duosecurity\.com' /etc/duo/pam_duo.conf; then
+  echo 'No complete existing Duo config found at /etc/duo/pam_duo.conf. This mode will not ask for or replace Duo keys; configure Duo first or restore its existing config.' >&2
+  exit 1
+fi
+[[ -r /etc/duo/pam_duo.conf ]] || { echo 'Cannot read existing Duo config.' >&2; exit 1; }
+if systemctl is-active --quiet ssh; then SSH_SERVICE=ssh
+elif systemctl is-active --quiet sshd; then SSH_SERVICE=sshd
+else echo 'SSH service is not active; refusing to change authentication config.' >&2; exit 1; fi
 BACKUP_DIR=/root/duo-setup-backup-$(date +%Y%m%d-%H%M%S)
 mkdir -m 700 "$BACKUP_DIR"
 for f in /etc/pam.d/sshd /etc/duo/pam_duo.conf /etc/ssh/sshd_config /etc/ssh/sshd_config.d/00-duo-bypass.conf; do
   if [[ -e "$f" ]]; then cp -a "$f" "$BACKUP_DIR/$(basename "$f")"
   else : > "$BACKUP_DIR/$(basename "$f").absent"; fi
 done
+if getent group duo-bypass >/dev/null; then getent group duo-bypass | awk -F: '{print $4}' | tr ',' '\n' > "$BACKUP_DIR/duo-bypass.members"
+else : > "$BACKUP_DIR/duo-bypass-group.absent"; : > "$BACKUP_DIR/duo-bypass.members"; fi
 echo "Backups saved in $BACKUP_DIR"
 rollback() {
   status=$?
+  local current user
   trap - ERR
   echo "Setup failed; restoring PAM and SSH files from $BACKUP_DIR" >&2
   for path in /etc/pam.d/sshd /etc/duo/pam_duo.conf /etc/ssh/sshd_config /etc/ssh/sshd_config.d/00-duo-bypass.conf; do
@@ -90,33 +147,28 @@ rollback() {
     if [[ -e "$BACKUP_DIR/$name" ]]; then cp -a "$BACKUP_DIR/$name" "$path"
     elif [[ -e "$BACKUP_DIR/$name.absent" ]]; then rm -f "$path"; fi
   done
+  if [[ -f "$BACKUP_DIR/duo-bypass.members" ]] && getent group duo-bypass >/dev/null; then
+    current=$(getent group duo-bypass | awk -F: '{print $4}' | tr ',' ' ')
+    for user in $current; do grep -Fxq "$user" "$BACKUP_DIR/duo-bypass.members" || gpasswd -d "$user" duo-bypass >/dev/null || true; done
+    while IFS= read -r user; do [[ -n "$user" ]] && id "$user" >/dev/null 2>&1 && usermod -aG duo-bypass "$user"; done < "$BACKUP_DIR/duo-bypass.members"
+  fi
+  if [[ -e "$BACKUP_DIR/duo-bypass-group.absent" ]] && getent group duo-bypass >/dev/null; then
+    [[ -z "$(getent group duo-bypass | awk -F: '{print $4}')" ]] && groupdel duo-bypass || true
+  fi
   if command -v sshd >/dev/null && sshd -t >/dev/null 2>&1; then
     systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   fi
   exit "$status"
 }
 trap rollback ERR
-echo 'Installing Duo Unix...'
+echo 'Checking existing Duo Unix installation...'
 if [[ "$DISTRO" == ubuntu ]]; then
-  if dpkg-query -W -f='${Status}' duo-unix 2>/dev/null | grep -qx 'install ok installed'; then
-    echo 'Duo Unix is already installed; skipping package installation.'
-  else
-    curl -fsSL https://duo.com/DUO-GPG-PUBLIC-KEY.asc | gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/duo.gpg
-    printf 'deb [arch=amd64] https://pkg.duosecurity.com/Ubuntu %s main\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/duosecurity.list
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y duo-unix
-  fi
+  dpkg-query -W -f='${Status}' duo-unix 2>/dev/null | grep -qx 'install ok installed' || { echo 'Duo Unix is not installed. This existing-config mode will not install packages.' >&2; exit 1; }
+  echo 'Duo Unix package is installed; no package changes.'
   MODULE=$(dpkg -L duo-unix | awk '/\/pam_duo\.so$/ {print; exit}')
 else
-  if rpm -q duo_unix >/dev/null 2>&1; then
-    echo 'Duo Unix is already installed; skipping package installation.'
-  else
-    rpm --import https://duo.com/DUO-GPG-PUBLIC-KEY.asc
-    mkdir -p /etc/yum.repos.d
-    printf '%s\n' '[duosecurity]' 'name=Duo Security Repository' 'baseurl=https://pkg.duosecurity.com/RedHat/$releasever/$basearch' 'enabled=1' 'gpgcheck=1' > /etc/yum.repos.d/duosecurity.repo
-    dnf makecache --refresh
-    dnf install -y duo_unix
-  fi
+  rpm -q duo_unix >/dev/null 2>&1 || { echo 'Duo Unix is not installed. This existing-config mode will not install packages.' >&2; exit 1; }
+  echo 'Duo Unix package is installed; no package changes.'
   MODULE=$(rpm -ql duo_unix | awk '/\/pam_duo\.so$/ {print; exit}')
 fi
 [[ -n "$MODULE" && -f "$MODULE" ]] || { echo 'pam_duo.so not found in installed package' >&2; exit 1; }
@@ -124,24 +176,11 @@ getent group duo-bypass >/dev/null || groupadd duo-bypass
 for user in $(echo "$BYPASS_USERS" | tr ',' ' '); do usermod -aG duo-bypass "$user"; done
 mkdir -p /etc/duo
 TMP_CONFIG=$(mktemp /etc/duo/pam_duo.conf.XXXXXX)
-cat > "$TMP_CONFIG" <<EOF
-[duo]
-; Duo integration key
-ikey = $DUO_IKEY
-; Duo secret key
-skey = $DUO_SKEY
-; Duo API host
-host = $DUO_HOST
-; safe allows access when Duo cannot authenticate due to service or configuration errors.
-; secure denies access in those cases.
-; With safe, login can continue without Duo when Duo is unavailable.
-failmode = safe
-; Send command for Duo Push authentication
-;pushinfo = yes
-groups = *,!duo-bypass
-EOF
+cp -a /etc/duo/pam_duo.conf "$TMP_CONFIG"
+if grep -Eq '^[[:space:]]*groups[[:space:]]*=' "$TMP_CONFIG"; then
+  sed -i -E 's/^[[:space:]]*groups[[:space:]]*=.*/groups = *,!duo-bypass/' "$TMP_CONFIG"
+else printf '\ngroups = *,!duo-bypass\n' >> "$TMP_CONFIG"; fi
 chown root:root "$TMP_CONFIG"; chmod 600 "$TMP_CONFIG"; mv -f "$TMP_CONFIG" /etc/duo/pam_duo.conf
-unset DUO_SKEY
 if ! grep -Fq "$MODULE" /etc/pam.d/sshd; then
   if [[ "$DISTRO" == ubuntu ]]; then PATTERN='^[[:space:]]*@include[[:space:]]+common-auth([[:space:]]|$)'
   else PATTERN='^[[:space:]]*auth[[:space:]]+substack[[:space:]]+password-auth([[:space:]]|$)'; fi
@@ -174,10 +213,8 @@ grep -qx 'usepam yes' <<<"$EFFECTIVE"
 grep -qx 'kbdinteractiveauthentication yes' <<<"$EFFECTIVE"
 grep -qx 'authenticationmethods keyboard-interactive' <<<"$EFFECTIVE"
 grep -qx 'passwordauthentication no' <<<"$EFFECTIVE"
-if systemctl is-active --quiet ssh; then systemctl reload ssh
-elif systemctl is-active --quiet sshd; then systemctl reload sshd
-else echo 'SSH service is not active' >&2; exit 1; fi
+  systemctl reload "$SSH_SERVICE"
 trap - ERR
-echo "Duo enabled for $DUO_USER; bypass users: $BYPASS_USERS"
+echo "Duo policy applied for $DUO_USER using the existing keys; bypass users: $BYPASS_USERS"
 echo "Keep the root session open until a new login succeeds. Backups: $BACKUP_DIR"
 echo "Test: ssh -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no $DUO_USER@SERVER"

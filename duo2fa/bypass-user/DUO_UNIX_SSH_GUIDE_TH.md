@@ -26,7 +26,7 @@ cd duo2fa-bypass-user-/duo2fa/bypass-user
 
 ## ต้องติดตั้ง Duo ไว้ก่อนหรือไม่
 
-Duo Unix ติดตั้งที่ระดับเครื่อง Linux ไม่ได้ติดตั้งแยกตาม user การ bypass จะมีผลเมื่อเครื่องตั้ง PAM Duo สำหรับ SSH แล้ว สคริปต์ด้านล่างเรียก package manager เพื่อติดตั้ง `duo-unix`/`duo_unix` ถ้ายังไม่มี หากมีอยู่แล้วจะใช้แพ็กเกจที่ติดตั้งไว้ (และอาจอัปเดตตามแพ็กเกจที่ repository เสนอ) โดยไม่ถอนแล้วติดตั้งใหม่
+Duo Unix ติดตั้งที่ระดับเครื่อง Linux ไม่ได้ติดตั้งแยกตาม user การ bypass จะมีผลเมื่อเครื่องตั้ง PAM Duo สำหรับ SSH แล้ว สคริปต์ตรวจ package ก่อน: ถ้ายังไม่มีจึงเพิ่ม repository และติดตั้ง `duo-unix`/`duo_unix`; ถ้ามีอยู่แล้วจะข้ามขั้นตอนติดตั้งและอัปเดต package
 
 สคริปต์จะตั้งค่า `/etc/duo/pam_duo.conf`, PAM และ SSH ใหม่ พร้อมสำรองไฟล์ที่เกี่ยวข้องไว้ก่อน ถ้ามี Duo config เดิม ให้ตรวจค่าที่จะใช้และเก็บ backup ไว้ก่อนรัน ต้องเตรียม Duo application keys (`ikey`, `skey`, `host`) ให้พร้อม บัญชี Linux ที่ระบุเป็น `--duo-user` ต้องมีอยู่ในระบบและถูก provision/enroll ใน Duo ส่วนบัญชีใน `--bypass-users` ต้องมีบัญชี Linux และจะไม่ถูกถาม Duo สำหรับ SSH ตาม policy นี้
 
@@ -412,6 +412,51 @@ getent group duo-bypass
 ```
 
 `root` และบัญชีที่แสดงเป็นสมาชิก `duo-bypass` จะถูกยกเว้น MFA โดย `groups = *,!duo-bypass`; `MFA_USER` ซึ่งอยู่นอกกลุ่มต้องผ่าน Duo เมื่อ SSH ถูกตั้งให้เรียก keyboard-interactive ตามวิธีที่เลือก
+
+## เพิ่มหรือเปลี่ยนผู้ใช้ภายหลัง
+
+### เพิ่มบัญชี bypass
+
+บัญชี Linux ต้องมีอยู่แล้ว จากนั้นเพิ่มเข้ากลุ่มโดยตรง ไม่ต้องรัน setup script ซ้ำ:
+
+```bash
+id USER_TO_BYPASS
+sudo usermod -aG duo-bypass USER_TO_BYPASS
+id USER_TO_BYPASS
+getent group duo-bypass
+```
+
+แทน `USER_TO_BYPASS` ด้วยชื่อบัญชีจริง การเป็นสมาชิกกลุ่มนี้ยกเว้น Duo สำหรับ SSH ให้บัญชีนั้น เปิด SSH session ใหม่เพื่อทดสอบ และตรวจให้แน่ใจว่าตั้งใจยกเว้นบัญชีดังกล่าว
+
+### เพิ่มบัญชีที่ต้องผ่าน Duo
+
+บัญชี Linux ใหม่ต้องมีอยู่ก่อน และต้องถูก provision/enroll ใน Duo Admin Panel หากบัญชีอยู่ใน `duo-bypass` ให้นำออก:
+
+```bash
+sudo gpasswd -d NEW_MFA_USER duo-bypass
+```
+
+เพิ่ม policy ใน `/etc/ssh/sshd_config` เพื่อบังคับให้บัญชีนั้นใช้ PAM keyboard-interactive แล้วตามด้วย Duo (กรณี password + Duo):
+
+```text
+Match all
+Match User NEW_MFA_USER
+    AuthenticationMethods keyboard-interactive
+    PasswordAuthentication no
+```
+
+แทน `NEW_MFA_USER` ด้วยชื่อบัญชีจริง จากนั้นตรวจ config และ reload:
+
+```bash
+sudo sshd -t
+sudo sshd -T -C user=NEW_MFA_USER,host=SSH_SERVER,addr=CLIENT_IP \
+  | grep -Ei '^(authenticationmethods|passwordauthentication|kbdinteractiveauthentication|usepam) '
+sudo systemctl reload ssh
+```
+
+เปิด session root เดิมค้างไว้และทดสอบล็อกอินใหม่ก่อนปิด session สำหรับ public key + Duo ให้ใช้ `AuthenticationMethods publickey,keyboard-interactive` แทนสองบรรทัด policy ข้างต้น
+
+สคริปต์นี้ตั้ง policy `Match User` ให้บัญชีเดียวที่ระบุใน `--duo-user` ตอนติดตั้งครั้งแรก การเพิ่ม MFA user ในภายหลังให้เพิ่ม SSH `Match` policy ตามตัวอย่าง ไม่ควรรันสคริปต์ซ้ำโดยเปลี่ยน `--duo-user` เพราะสคริปต์ไม่ได้เพิ่ม user ใหม่เข้า Match block เดิมโดยอัตโนมัติ
 
 ## Rollback
 

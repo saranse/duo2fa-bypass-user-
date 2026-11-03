@@ -41,6 +41,12 @@ chmod 700 setup_duo_bypass.sh
 sudo ./setup_duo_bypass.sh --duo-user MFA_USER --bypass-users root,svcbackup
 ```
 
+ความหมายของค่าที่ใส่:
+
+- `MFA_USER` คือ **ชื่อ user Linux จริง** ที่ต้องการให้ SSH login ผ่าน Duo เช่น `saran` ให้แทนคำว่า `MFA_USER` ด้วยชื่อนั้น ห้ามพิมพ์ `MFA_USER` ตรง ๆ เว้นแต่ชื่อบัญชี Linux ของคุณเป็นชื่อนี้จริง บัญชีนี้ต้องมีอยู่บนเครื่องและถูก provision/enroll ใน Duo
+- `root,svcbackup` คือ **รายชื่อ user Linux ที่ยกเว้น Duo** ในตัวอย่าง `root` และ `svcbackup` จะไม่ถูกถาม Duo ผ่าน SSH ให้ใส่เฉพาะบัญชีที่มีอยู่จริง คั่นหลายบัญชีด้วย comma และไม่เว้นวรรค เช่น `root,serviceuser` เอา `root` ออกจากรายการถ้าไม่ต้องการยกเว้น root
+- สคริปต์สร้างกลุ่ม `duo-bypass` และเพิ่มบัญชีใน `--bypass-users` ให้เอง ไม่ต้องสร้างกลุ่มก่อน แต่จะไม่สร้างบัญชี Linux ให้
+
 สคริปต์ตั้งค่า `MFA_USER` ให้ใช้รหัสผ่าน Linux ผ่าน `keyboard-interactive` แล้วทำ Duo MFA โดยปิด SSH public-key login สำหรับบัญชีนี้ จึงให้ทดสอบตามคำสั่งที่สคริปต์แสดง และอย่าปิด session root เดิมจนกว่าจะยืนยันว่า login ใหม่สำเร็จ สคริปต์สำรองไฟล์ PAM และ SSH ไว้ที่ `/root/duo-setup-backup-*` และพยายามคืนไฟล์เหล่านั้นหากขั้นตอนตั้งค่าล้มเหลว
 
 การตั้งค่า AlmaLinux ใช้ Duo RPM repository สำหรับ RHEL ซึ่งเป็นการอาศัยความเข้ากันได้ของ AlmaLinux กับ RHEL; ทดสอบในระบบ staging ก่อนใช้งานจริง สคริปต์ไม่ได้ลบ package หรือ repository ที่ติดตั้งไว้หากเกิด rollback

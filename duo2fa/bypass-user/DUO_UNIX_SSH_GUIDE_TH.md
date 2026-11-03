@@ -41,6 +41,14 @@ sudo ./setup_duo_bypass.sh
 
 เมนูข้อ 1 ใช้กับเครื่องที่มี Duo ทำงานอยู่แล้ว: ระบุ Linux user ที่ต้องผ่าน Duo และ user ที่ต้อง bypass จากนั้นสคริปต์คง Key เดิมไว้ ปรับ group policy/PAM/SSH และสร้าง backup ก่อนแก้ ถ้าไม่มี Duo package หรือ config เดิม สคริปต์จะหยุดโดยไม่ติดตั้งและไม่ขอ Key
 
+ตัวอย่างตอนสคริปต์ถามรายชื่อ user ที่ต้อง bypass หากต้องการยกเว้นหลายบัญชี ให้คั่นชื่อด้วย comma โดยไม่เว้นวรรค เช่น:
+
+```text
+root,svcbackup,monitoruser
+```
+
+บัญชีทั้งสามต้องเป็น Linux user ที่มีอยู่จริงบนเครื่อง ส่วน user ที่ระบุในช่อง `Linux user that must use Duo MFA` ต้องไม่ซ้ำกับรายชื่อ bypass
+
 เมนูข้อ 2 ใช้เพิ่มบัญชี bypass หลังมีการตั้งค่าแล้ว โดยเปลี่ยนสมาชิกกลุ่มเท่านั้น เมนูข้อ 3 ใช้ rollback เลือก backup ใน `/root/duo-setup-backup-*` เพื่อคืนไฟล์ PAM/SSH/Duo config และสมาชิกกลุ่ม bypass ที่บันทึกไว้ สคริปต์จะถามยืนยันก่อน rollback ทุกครั้ง
 
 ตัวอย่าง: บังคับ Duo ให้ `MFA_USER` และยกเว้น `root` กับ `svcbackup`:

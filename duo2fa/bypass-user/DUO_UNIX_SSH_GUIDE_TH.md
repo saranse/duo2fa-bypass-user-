@@ -34,6 +34,14 @@ Duo Unix ติดตั้งที่ระดับเครื่อง Linu
 
 ใน repository มีสคริปต์ `setup_duo_bypass.sh` สำหรับ Ubuntu amd64 และ AlmaLinux โดยสคริปต์จะติดตั้ง Duo Unix, ถาม `ikey` และ `host`, รับ `skey` แบบไม่แสดงบนหน้าจอ, สร้างกลุ่ม `duo-bypass`, เพิ่มบัญชีที่ระบุ, ตั้ง PAM/SSH และตรวจ config ก่อน reload SSH
 
+รันโดยไม่ใส่ option เพื่อเปิดเมนู `DUO 2FA`:
+
+```bash
+sudo ./setup_duo_bypass.sh
+```
+
+เมนูมีตัวเลือกตั้งค่า Duo ครั้งแรก และเพิ่มบัญชีเข้า bypass group ในภายหลัง เมื่อตั้งค่าแล้ว หากเพิ่ม bypass user ให้เลือกเมนูข้อ 2; สคริปต์จะเพิ่ม user ที่มีอยู่เข้ากลุ่มเดิมโดยไม่ติดตั้ง Duo หรือเขียน config ใหม่
+
 ตัวอย่าง: บังคับ Duo ให้ `MFA_USER` และยกเว้น `root` กับ `svcbackup`:
 
 ```bash

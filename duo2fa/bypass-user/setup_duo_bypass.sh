@@ -139,8 +139,9 @@ else : > "$BACKUP_DIR/duo-bypass-group.absent"; : > "$BACKUP_DIR/duo-bypass.memb
 echo "Backups saved in $BACKUP_DIR"
 rollback() {
   status=$?
+  (( status == 0 )) && return 0
   local current user
-  trap - ERR
+  trap - EXIT ERR
   echo "Setup failed; restoring PAM and SSH files from $BACKUP_DIR" >&2
   for path in /etc/pam.d/sshd /etc/duo/pam_duo.conf /etc/ssh/sshd_config /etc/ssh/sshd_config.d/00-duo-bypass.conf; do
     name=$(basename "$path")
@@ -160,7 +161,7 @@ rollback() {
   fi
   exit "$status"
 }
-trap rollback ERR
+trap rollback EXIT
 echo 'Checking existing Duo Unix installation...'
 if [[ "$DISTRO" == ubuntu ]]; then
   dpkg-query -W -f='${Status}' duo-unix 2>/dev/null | grep -qx 'install ok installed' || { echo 'Duo Unix is not installed. This existing-config mode will not install packages.' >&2; exit 1; }
@@ -214,7 +215,7 @@ grep -qx 'kbdinteractiveauthentication yes' <<<"$EFFECTIVE"
 grep -qx 'authenticationmethods keyboard-interactive' <<<"$EFFECTIVE"
 grep -qx 'passwordauthentication no' <<<"$EFFECTIVE"
   systemctl reload "$SSH_SERVICE"
-trap - ERR
+trap - EXIT ERR
 echo "Duo policy applied for $DUO_USER using the existing keys; bypass users: $BYPASS_USERS"
 echo "Keep the root session open until a new login succeeds. Backups: $BACKUP_DIR"
 echo "Test: ssh -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no $DUO_USER@SERVER"

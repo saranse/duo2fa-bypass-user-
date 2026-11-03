@@ -52,17 +52,25 @@ rollback() {
 trap rollback ERR
 echo 'Installing Duo Unix...'
 if [[ "$DISTRO" == ubuntu ]]; then
-  curl -fsSL https://duo.com/DUO-GPG-PUBLIC-KEY.asc | gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/duo.gpg
-  printf 'deb [arch=amd64] https://pkg.duosecurity.com/Ubuntu %s main\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/duosecurity.list
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y duo-unix
+  if dpkg-query -W -f='${Status}' duo-unix 2>/dev/null | grep -qx 'install ok installed'; then
+    echo 'Duo Unix is already installed; skipping package installation.'
+  else
+    curl -fsSL https://duo.com/DUO-GPG-PUBLIC-KEY.asc | gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/duo.gpg
+    printf 'deb [arch=amd64] https://pkg.duosecurity.com/Ubuntu %s main\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/duosecurity.list
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y duo-unix
+  fi
   MODULE=$(dpkg -L duo-unix | awk '/\/pam_duo\.so$/ {print; exit}')
 else
-  rpm --import https://duo.com/DUO-GPG-PUBLIC-KEY.asc
-  mkdir -p /etc/yum.repos.d
-  printf '%s\n' '[duosecurity]' 'name=Duo Security Repository' 'baseurl=https://pkg.duosecurity.com/RedHat/$releasever/$basearch' 'enabled=1' 'gpgcheck=1' > /etc/yum.repos.d/duosecurity.repo
-  dnf makecache --refresh
-  dnf install -y duo_unix
+  if rpm -q duo_unix >/dev/null 2>&1; then
+    echo 'Duo Unix is already installed; skipping package installation.'
+  else
+    rpm --import https://duo.com/DUO-GPG-PUBLIC-KEY.asc
+    mkdir -p /etc/yum.repos.d
+    printf '%s\n' '[duosecurity]' 'name=Duo Security Repository' 'baseurl=https://pkg.duosecurity.com/RedHat/$releasever/$basearch' 'enabled=1' 'gpgcheck=1' > /etc/yum.repos.d/duosecurity.repo
+    dnf makecache --refresh
+    dnf install -y duo_unix
+  fi
   MODULE=$(rpm -ql duo_unix | awk '/\/pam_duo\.so$/ {print; exit}')
 fi
 [[ -n "$MODULE" && -f "$MODULE" ]] || { echo 'pam_duo.so not found in installed package' >&2; exit 1; }

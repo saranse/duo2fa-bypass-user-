@@ -26,13 +26,13 @@ cd duo2fa-bypass-user-/duo2fa/bypass-user
 
 ## ต้องติดตั้ง Duo ไว้ก่อนหรือไม่
 
-Duo Unix ติดตั้งที่ระดับเครื่อง Linux ไม่ได้ติดตั้งแยกตาม user การ bypass จะมีผลเมื่อเครื่องตั้ง PAM Duo สำหรับ SSH แล้ว สคริปต์ตรวจ package ก่อน: ถ้ายังไม่มีจึงเพิ่ม repository และติดตั้ง `duo-unix`/`duo_unix`; ถ้ามีอยู่แล้วจะข้ามขั้นตอนติดตั้งและอัปเดต package
+Duo Unix ติดตั้งที่ระดับเครื่อง Linux ไม่ได้ติดตั้งแยกตาม user การ bypass จะมีผลเมื่อเครื่องตั้ง PAM Duo สำหรับ SSH แล้ว **เมนูข้อ 1 เวอร์ชันปัจจุบันใช้ Duo package และ Key จาก config เดิมเท่านั้น** โดยตรวจว่ามี package, `/etc/duo/pam_duo.conf` ที่มี `ikey`/`skey`/`host`, PAM module และ SSH service ทำงานอยู่ก่อน ไม่ติดตั้ง package และไม่ถามหรือเขียนทับ Key หากตรวจไม่พบ config เดิม สคริปต์จะหยุดและแจ้งให้ตั้งค่า Duo ก่อน
 
-สคริปต์จะตั้งค่า `/etc/duo/pam_duo.conf`, PAM และ SSH ใหม่ พร้อมสำรองไฟล์ที่เกี่ยวข้องไว้ก่อน ถ้ามี Duo config เดิม ให้ตรวจค่าที่จะใช้และเก็บ backup ไว้ก่อนรัน ต้องเตรียม Duo application keys (`ikey`, `skey`, `host`) ให้พร้อม บัญชี Linux ที่ระบุเป็น `--duo-user` ต้องมีอยู่ในระบบและถูก provision/enroll ใน Duo ส่วนบัญชีใน `--bypass-users` ต้องมีบัญชี Linux และจะไม่ถูกถาม Duo สำหรับ SSH ตาม policy นี้
+ข้อ 1 จะคง Duo Key และค่า `failmode` ใน config เดิมไว้ แล้วปรับเฉพาะกฎ `groups = *,!duo-bypass` พร้อมตั้ง PAM/SSH ตามสคริปต์ และสำรองไฟล์ก่อนแก้ บัญชี Linux ที่ระบุเป็น `--duo-user` ต้องมีอยู่และถูก provision/enroll ใน Duo ส่วนบัญชีใน `--bypass-users` ต้องมีบัญชี Linux และจะไม่ถูกถาม Duo สำหรับ SSH ตาม policy นี้
 
 ## ติดตั้งอัตโนมัติด้วยสคริปต์
 
-ใน repository มีสคริปต์ `setup_duo_bypass.sh` สำหรับ Ubuntu amd64 และ AlmaLinux โดยสคริปต์จะติดตั้ง Duo Unix, ถาม `ikey` และ `host`, รับ `skey` แบบไม่แสดงบนหน้าจอ, สร้างกลุ่ม `duo-bypass`, เพิ่มบัญชีที่ระบุ, ตั้ง PAM/SSH และตรวจ config ก่อน reload SSH
+ใน repository มีสคริปต์ `setup_duo_bypass.sh` สำหรับ Ubuntu amd64 และ AlmaLinux โดยเมนูข้อ 1 จะตรวจ Duo Unix และ config ที่มีอยู่ ไม่ติดตั้ง package หรือถาม Key ใหม่ สร้างกลุ่ม `duo-bypass` หากยังไม่มี เพิ่มบัญชีที่ระบุ ตั้ง PAM/SSH และตรวจ config ก่อน reload SSH
 
 รันโดยไม่ใส่ option เพื่อเปิดเมนู `DUO 2FA`:
 
@@ -40,7 +40,9 @@ Duo Unix ติดตั้งที่ระดับเครื่อง Linu
 sudo ./setup_duo_bypass.sh
 ```
 
-เมนูข้อ 1 ใช้ติดตั้งครั้งแรกหรือ reconfigure Duo/PAM/SSH และจะถามยืนยันก่อนเขียน config ใหม่ ส่วนข้อ 2 ใช้เพิ่มบัญชีเข้า bypass group ที่มีอยู่เท่านั้น หากเพิ่ม bypass user หลังตั้งค่าแล้ว ให้เลือกข้อ 2; สคริปต์จะเพิ่ม user Linux ที่มีอยู่เข้ากลุ่มโดยไม่ติดตั้ง Duo หรือเขียน config ใหม่
+เมนูข้อ 1 ใช้กับเครื่องที่มี Duo ทำงานอยู่แล้ว: ระบุ Linux user ที่ต้องผ่าน Duo และ user ที่ต้อง bypass จากนั้นสคริปต์คง Key เดิมไว้ ปรับ group policy/PAM/SSH และสร้าง backup ก่อนแก้ ถ้าไม่มี Duo package หรือ config เดิม สคริปต์จะหยุดโดยไม่ติดตั้งและไม่ขอ Key
+
+เมนูข้อ 2 ใช้เพิ่มบัญชี bypass หลังมีการตั้งค่าแล้ว โดยเปลี่ยนสมาชิกกลุ่มเท่านั้น เมนูข้อ 3 ใช้ rollback เลือก backup ใน `/root/duo-setup-backup-*` เพื่อคืนไฟล์ PAM/SSH/Duo config และสมาชิกกลุ่ม bypass ที่บันทึกไว้ สคริปต์จะถามยืนยันก่อน rollback ทุกครั้ง
 
 ตัวอย่าง: บังคับ Duo ให้ `MFA_USER` และยกเว้น `root` กับ `svcbackup`:
 

@@ -58,10 +58,10 @@ sudo ./setup_duo_bypass.sh --duo-user MFA_USER --bypass-users root,svcbackup
 - PAM module อยู่ที่ `/lib64/security/pam_duo.so`
 - ก่อนเปลี่ยนมาใช้ bypass group ตัวอย่างเดิมมี `duo-required` และ `groups = duo-required`
 - รูปแบบใน KB นี้เปลี่ยนเป็น `duo-bypass` และ `groups = *,!duo-bypass`
-- config ที่ผู้ดูแลตั้งในตัวอย่างมี `failmode = safe`; คู่มือนี้แนะนำ `secure`
+- ตัวอย่างนี้ใช้ `failmode = safe` ตามความต้องการให้ล็อกอินต่อได้เมื่อ Duo ติดต่อไม่ได้
 - ใน log ล่าสุด `sshd -T` แสดง `UsePAM yes`, `PasswordAuthentication yes`, `KbdInteractiveAuthentication yes`, `UseDNS yes`
 
-สำหรับการบังคับ MFA ให้ใช้ `failmode = secure` และตรวจให้ `UseDNS no` มีผลจริงตามหัวข้อด้านล่าง
+`failmode = safe` เป็นแบบ fail-open เมื่อ Duo มีปัญหาด้านการเชื่อมต่อหรือ configuration; หากต้องการปฏิเสธ login ในกรณีดังกล่าวให้ใช้ `secure` แทน ตรวจให้ `UseDNS no` มีผลจริงตามหัวข้อด้านล่าง
 
 ## 1. เพิ่ม repository และติดตั้งแพ็กเกจ
 
@@ -163,14 +163,22 @@ sudo nano /etc/duo/pam_duo.conf
 
 ```ini
 [duo]
+; Duo integration key
 ikey = YOUR_INTEGRATION_KEY
+; Duo secret key
 skey = YOUR_SECRET_KEY
+; Duo API host
 host = api-XXXXXXXX.duosecurity.com
+; safe allows access when Duo service or configuration errors prevent Duo authentication.
+; secure denies access in those cases.
+; With safe, login can continue without Duo when Duo is unavailable.
+failmode = safe
+; Send command for Duo Push authentication
+;pushinfo = yes
 groups = *,!duo-bypass
-failmode = secure
 ```
 
-`failmode = safe` จะอนุญาตให้ผ่านได้เมื่อ Duo ติดต่อไม่ได้หรือ configuration มีปัญหา จึงอาจทำให้ล็อกอินโดยไม่มี MFA ได้ สำหรับการบังคับ MFA ให้ใช้ `secure` และทดสอบโดยเปิด session ผู้ดูแลเดิมค้างไว้
+ค่า `failmode` ที่ Duo รองรับคือ `safe` และ `secure`; `failmode = false` ไม่ใช่ค่าที่ถูกต้อง หากตั้ง `safe` แล้ว Duo service ติดต่อไม่ได้หรือ configuration มี error ระบบอาจอนุญาตให้ผ่านโดยไม่มี Duo MFA ซึ่งเป็น fail-open ตามที่ต้องการ แต่หมายความว่า network/configuration error อาจลดการป้องกัน MFA ด้วย หากต้องการปฏิเสธ login เมื่อ Duo ใช้งานไม่ได้ ให้เปลี่ยนเป็น `failmode = secure` และทดสอบโดยเปิด session ผู้ดูแลเดิมค้างไว้
 
 ตั้ง owner และ permission หลังแก้ไฟล์:
 

@@ -22,10 +22,14 @@ done
 [[ $EUID -eq 0 ]] || { echo "Run with sudo: $0" >&2; exit 1; }
 
 if [[ $# -eq 0 && -t 0 && -z "$DUO_USER" && -z "$BYPASS_USERS" && "$ACTION" == setup ]]; then
-  printf '\n%s\n' '1) Install/configure Duo MFA and bypass users' '2) Add user(s) to the existing Duo bypass group' '0) Exit'
+  printf '\n%s\n' '1) First-time setup / reconfigure Duo (updates Duo, PAM, and SSH config)' '2) Add bypass user(s) to existing setup (group change only)' '0) Exit'
   read -r -p 'Select an option: ' MENU_CHOICE
   case "$MENU_CHOICE" in
-    1) ACTION=setup ;;
+    1)
+      ACTION=setup
+      read -r -p 'This will write Duo config and update PAM/SSH settings. Continue? [y/N]: ' CONFIRM_SETUP
+      [[ "$CONFIRM_SETUP" =~ ^[Yy]$ ]] || { echo 'Setup cancelled.'; exit 0; }
+      ;;
     2) ACTION=add-bypass ;;
     0) echo 'Exit.'; exit 0 ;;
     *) echo 'Invalid menu option.' >&2; exit 2 ;;
